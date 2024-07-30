@@ -5,7 +5,7 @@
 import os
 
 import neat
-import visualize
+import neat_utils
 
 # 2-input XOR inputs and expected outputs.
 xor_inputs = [(0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0)]
@@ -50,10 +50,10 @@ def run(config_file):
         print("input {!r}, expected output {!r}, got {!r}".format(xi, xo, output))
 
     node_names = {-1: 'A', -2: 'B', 0: 'A XOR B'}
-    visualize.draw_net(config, winner, True, node_names=node_names)
-    visualize.draw_net(config, winner, True, node_names=node_names, prune_unused=True, filename="pruned-network")
-    visualize.plot_stats(stats, ylog=False, view=True)
-    visualize.plot_species(stats, view=True)
+    neat_utils.draw_net(config, winner, True, node_names=node_names)
+    neat_utils.draw_net(config, winner, True, node_names=node_names, prune_unused=True, filename="pruned-network")
+    neat_utils.plot_stats(stats, ylog=False, view=True)
+    neat_utils.plot_species(stats, view=True)
 
     p = neat.Checkpointer.restore_checkpoint('./checkpoints/4')
     p.run(eval_genomes, 10)
