@@ -3,6 +3,7 @@ import neat
 import random
 import neat_utils
 import pickle
+import gzip
 
 
 SPEED_MULTIPLIER = 8
@@ -11,9 +12,9 @@ WIN_WIDTH, WIN_HEIGHT = 500, 500
 BACKGROUND_COLOUR = (0, 0, 0)
 FPS = 60
 
-PADDLE_WIDTH, PADDLE_HEIGHT = 20, 10
+PADDLE_WIDTH, PADDLE_HEIGHT = 50, 10
 PADDLE_COLOUR = (255, 255, 255)
-PADDLE_SPEED = 100 # px/sec
+PADDLE_SPEED = 50 # px/sec
 PADDLE_SPEED *= SPEED_MULTIPLIER
 
 BALL_RADIUS = 10
@@ -25,8 +26,19 @@ REWARD_PER_TIME = 0.1 # /sec
 REWARD_PER_BOUNCE = 10
 PENALTY_PER_DEATH = 5
 
-FITNESS_THRESHOLD = 500
+CONFIG_FILE = "pong_config.txt"
 
+NODE_NAMES = {
+    -1: "Ball pos x",
+    -2: "Ball pos y",
+    -3: "Ball speed x",
+    -4: "Ball speed y",
+    -5: "x diff",
+    -6: "y diff",
+    0: "Left",
+    1: "Stay",
+    2: "Right"
+}
 
 class Paddle:
     def __init__(self) -> None:
@@ -101,8 +113,21 @@ class Ball:
                            radius=BALL_RADIUS)
 
 
+def revive_winner(winner_file:str="./temp/winning_pong_genome.gn"):
+    with gzip.open(winner_file, "r") as f:
+        winner = pickle.load(f)
 
-def eval_genomes(genomes:tuple[int,neat.DefaultGenome], config:neat.Config):
+    # Load configuration
+    config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction,
+                         neat.DefaultSpeciesSet, neat.DefaultStagnation,
+                         CONFIG_FILE)
+
+    genomes = [(0, winner)]
+
+    eval_genomes(genomes, config)
+
+
+def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config):
     # Initialise games
     balls : list[Ball] = []
     paddles : list[Paddle] = []
@@ -149,23 +174,23 @@ def eval_genomes(genomes:tuple[int,neat.DefaultGenome], config:neat.Config):
             fitnesses.append(ges[i].fitness)
             
             # Goal complete
-            if ges[i].fitness >= FITNESS_THRESHOLD:
+            if ges[i].fitness >= config.fitness_threshold:
                 running = False
 
-            # inputs = (
-            #     ball.position.x,
-            #     ball.position.y,
-            #     ball.velocity.x,
-            #     ball.velocity.y,
-            #     paddles[i].position.x,
-            #     paddles[i].position.y
-            # )
             inputs = (
-                # ball.velocity.x,
-                # ball.velocity.y,
-                paddles[i].position.x - ball.position.x,
-                paddles[i].position.y - ball.position.y
+                ball.position.x,
+                ball.position.y,
+                ball.velocity.x,
+                ball.velocity.y,
+                paddles[i].position.x,
+                paddles[i].position.y
             )
+            # inputs = (
+            #     # ball.velocity.x,
+            #     # ball.velocity.y,
+            #     paddles[i].position.x - ball.position.x,
+            #     paddles[i].position.y - ball.position.y
+            # )
             output = nets[i].activate(inputs)
             direction = output.index(max(output)) - 1
 
@@ -195,44 +220,43 @@ def eval_genomes(genomes:tuple[int,neat.DefaultGenome], config:neat.Config):
             running = False
 
 
-def run(config_file):
+def run(winner_file="./temp/winning_pong_genome.gn"):
     # Load configuration
     config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction,
                          neat.DefaultSpeciesSet, neat.DefaultStagnation,
-                         config_file)
+                         CONFIG_FILE)
     
     # Create the overarching population object
     p = neat.Population(config)
 
     # Add a stdout reporter to show progress in the terminal.
     p.add_reporter(neat.StdOutReporter(False))
+    p.add_reporter(neat_utils.DrawNetReporter(NODE_NAMES))
     stats = neat.StatisticsReporter()
     p.add_reporter(stats)
+    p.add_reporter(neat_utils.StatsGraphReporter(stats))
     p.add_reporter(neat.Checkpointer(1, filename_prefix="./checkpoints/pong/"))
 
     # Train the network
     winner = p.run(eval_genomes)
+    
+    # Save best genome
+    with gzip.open(winner_file, "w") as f:
+        pickle.dump(winner, f)
 
     # Display the winning genome.
     print('\n--- Best genome: ---\n{!s}'.format(winner))
     
-    node_names = {
-        # -1: "Ball x speed",
-        # -2: "Ball y speed",
-        -1: "x diff",
-        -2: "y diff",
-        0: "Left",
-        1: "Stay",
-        2: "Right"
-    }
-    neat_utils.draw_net(config, winner, True, node_names=node_names)
-    neat_utils.draw_net(config, winner, True, node_names=node_names, prune_unused=True, filename="pruned-network")
-    neat_utils.plot_stats(stats, ylog=False, view=True)
-    neat_utils.plot_species(stats, view=True)
+    winner = []
 
-    with open("pong_genome", "w") as f:
-        pickle.dump(winner, f)
+
+    # neat_utils.draw_net(config, winner, True, node_names=NODE_NAMES)
+    # neat_utils.draw_net(config, winner, True, node_names=NODE_NAMES, prune_unused=True, filename="network-pruned")
+    # neat_utils.plot_stats(stats, ylog=False, view=True)
+    # neat_utils.plot_species(stats, view=True)
 
 
 if __name__ == "__main__":
-    run("pong_config.txt")
+    # run()
+
+    revive_winner()

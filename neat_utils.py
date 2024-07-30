@@ -3,6 +3,68 @@ import warnings
 import graphviz
 import matplotlib.pyplot as plt
 import numpy as np
+from neat.reporting import BaseReporter
+
+
+class DrawNetReporter(BaseReporter):
+    def __init__(self, node_names=None) -> None:
+        self.node_names = node_names
+
+    def start_generation(self, generation):
+        self.generation = generation
+
+    def end_generation(self, config, population, species_set):
+        pass
+
+    def post_evaluate(self, config, population, species, best_genome):
+        draw_net(config,
+                 genome=best_genome,
+                 view=False,
+                 filename=f"current_best_genome",
+                 node_names=self.node_names)
+        draw_net(config,
+                 genome=best_genome,
+                 view=False,
+                 filename=f"current_best_genome_pruned",
+                 node_names=self.node_names,
+                 prune_unused=True)
+
+    def complete_extinction(self):
+        pass
+
+    def found_solution(self, config, generation, best):
+        pass
+
+    def species_stagnant(self, sid, species):
+        pass
+
+    def info(self, msg):
+        print(f"DrawNetReporter: {msg}")
+
+class StatsGraphReporter(BaseReporter):
+    def __init__(self, stats) -> None:
+        self.stats = stats
+
+    def start_generation(self, generation):
+        self.generation = generation
+
+    def end_generation(self, config, population, species_set):
+        pass
+
+    def post_evaluate(self, config, population, species, best_genome):
+        plot_stats(self.stats, view=False, filename="current_fitness_graph.pdf")
+
+    def complete_extinction(self):
+        pass
+
+    def found_solution(self, config, generation, best):
+        pass
+
+    def species_stagnant(self, sid, species):
+        pass
+
+    def info(self, msg):
+        print(f"StatsGraphReporter: {msg}")
 
 
 def plot_stats(statistics, ylog=False, view=False, filename='avg_fitness.svg'):
@@ -34,7 +96,6 @@ def plot_stats(statistics, ylog=False, view=False, filename='avg_fitness.svg'):
         plt.show()
 
     plt.close()
-
 
 def plot_spikes(spikes, view=False, filename=None, title=None):
     """ Plots the trains for a single spiking neuron. """
@@ -84,7 +145,6 @@ def plot_spikes(spikes, view=False, filename=None, title=None):
 
     return fig
 
-
 def plot_species(statistics, view=False, filename='speciation.svg'):
     """ Visualizes speciation throughout evolution. """
     if plt is None:
@@ -108,7 +168,6 @@ def plot_species(statistics, view=False, filename='speciation.svg'):
         plt.show()
 
     plt.close()
-
 
 def draw_net(config, genome, view=False, filename="network", node_names=None, show_disabled=True, prune_unused=False,
              node_colors=None, fmt='svg'):
@@ -180,6 +239,6 @@ def draw_net(config, genome, view=False, filename="network", node_names=None, sh
             width = str(0.1 + abs(cg.weight / 5.0))
             dot.edge(a, b, _attributes={'style': style, 'color': color, 'penwidth': width})
 
-    dot.render(f"./temp/{filename}", view=view)
+    dot.render(f"./temp/{filename}", view=view, format="pdf")
 
     return dot
