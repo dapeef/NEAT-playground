@@ -14,7 +14,7 @@ FPS = 60
 
 PADDLE_WIDTH, PADDLE_HEIGHT = 50, 10
 PADDLE_COLOUR = (255, 255, 255)
-PADDLE_SPEED = 50 # px/sec
+PADDLE_SPEED = 100 # px/sec
 PADDLE_SPEED *= SPEED_MULTIPLIER
 
 BALL_RADIUS = 10
@@ -25,28 +25,31 @@ BALL_SPEED *= SPEED_MULTIPLIER
 REWARD_PER_TIME = 0.1 # /sec
 REWARD_PER_BOUNCE = 10
 PENALTY_PER_DEATH = 5
+PENALTY_PER_MOVEMENT = 0.003 # /px
 
 CONFIG_FILE = "pong_config.txt"
 
 NODE_NAMES = {
     -1: "Ball pos x",
-    -2: "Ball pos y",
-    -3: "Ball speed x",
-    -4: "Ball speed y",
-    -5: "x diff",
-    -6: "y diff",
-    0: "Left",
-    1: "Stay",
-    2: "Right"
+    # -2: "Ball pos y",
+    # -3: "Ball speed x",
+    # -4: "Ball speed y",
+    -2: "Paddle pos x",
+    # -6: "Paddle pos y",
+     0: "Paddle\naccel",
+    # 1: "Stay",
+    # 2: "Right"
 }
 
 class Paddle:
     def __init__(self) -> None:
         self.position : pygame.math.Vector2 = pygame.math.Vector2(random.randint(PADDLE_WIDTH//2, WIN_WIDTH - PADDLE_WIDTH//2), WIN_HEIGHT-PADDLE_HEIGHT//2)
     
-    def move(self, direction:int, dt:float):
-        # direction: -1 = left, 0 = no movement, 1 = right
-        self.position.x += direction * PADDLE_SPEED * dt
+    def move(self, velocity:int, dt:float):
+        velocity = pygame.math.clamp(velocity, -PADDLE_SPEED, PADDLE_SPEED)
+        self.position.x += velocity * dt
+
+        return abs(velocity * dt)
     
     def draw(self, screen:pygame.surface.Surface):
         rect = pygame.Rect(
@@ -56,7 +59,6 @@ class Paddle:
             PADDLE_HEIGHT
         )
         pygame.draw.rect(screen, PADDLE_COLOUR, rect, width=2, border_radius=PADDLE_HEIGHT//4)
-
 
 class Ball:
     def __init__(self, paddle:Paddle) -> None:
@@ -88,14 +90,15 @@ class Ball:
             self.time_since_bounce.y = 0
         
         # Hit paddle
-        has_hit_paddle = False
+        has_hit_paddle = None
         dead = False
         if self.position.y > WIN_HEIGHT - PADDLE_HEIGHT - BALL_RADIUS and self.time_since_bounce.y >= WIN_HEIGHT/BALL_SPEED*.5:
             if self.paddle.position.x - PADDLE_WIDTH/2 < self.position.x < self.paddle.position.x + PADDLE_WIDTH/2:
-                has_hit_paddle = True
+                has_hit_paddle = 1 - abs(self.position.x - self.paddle.position.x) / (PADDLE_WIDTH/2) / 3
 
-                angle = 50 * (self.position.x - self.paddle.position.x) / (PADDLE_WIDTH/2)
-                self.velocity = pygame.math.Vector2(0, -BALL_SPEED).rotate(angle)
+                # angle : float = 50 * (self.position.x - self.paddle.position.x) / (PADDLE_WIDTH/2)
+                angle : int = random.randint(20, 160)
+                self.velocity = pygame.math.Vector2(BALL_SPEED, 0).rotate(-angle)
 
                 self.time_since_bounce.y = 0
             else:
@@ -126,7 +129,6 @@ def revive_winner(winner_file:str="./temp/winning_pong_genome.gn"):
 
     eval_genomes(genomes, config)
 
-
 def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config):
     # Initialise games
     balls : list[Ball] = []
@@ -148,7 +150,6 @@ def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config
 
     # Mainloop
     running = True
-    loops = 0
     elapsed_time = 0
     while running:
         # Event loop
@@ -160,18 +161,17 @@ def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config
         # Wait for clock
         dt = clock.tick(FPS)/1000
         elapsed_time += dt
-        loops += 1
+
+        if elapsed_time >= 20:
+            break
 
         # print(f"loops: {loops} | dt: {dt} | elapsed time: {elapsed_time} | Ball position: {balls[0].position}")
 
         # Background fill
         surface.fill(BACKGROUND_COLOUR)
 
-        fitnesses : list[float] = []
-
         for i, ball in enumerate(balls):
             ges[i].fitness += REWARD_PER_TIME * dt
-            fitnesses.append(ges[i].fitness)
             
             # Goal complete
             if ges[i].fitness >= config.fitness_threshold:
@@ -179,11 +179,11 @@ def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config
 
             inputs = (
                 ball.position.x,
-                ball.position.y,
-                ball.velocity.x,
-                ball.velocity.y,
+                # ball.position.y,
+                # ball.velocity.x,
+                # ball.velocity.y,
                 paddles[i].position.x,
-                paddles[i].position.y
+                # paddles[i].position.y
             )
             # inputs = (
             #     # ball.velocity.x,
@@ -192,16 +192,17 @@ def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config
             #     paddles[i].position.y - ball.position.y
             # )
             output = nets[i].activate(inputs)
-            direction = output.index(max(output)) - 1
-
-            paddles[i].move(direction, dt)
+            velocity = output[0] * 800
+            distance_moved = paddles[i].move(velocity, dt)
             paddles[i].draw(surface)
 
-            paddle_bounce, dead = ball.move(dt)
+            ges[i].fitness -= distance_moved * PENALTY_PER_MOVEMENT
+
+            paddle_reward, dead = ball.move(dt)
             ball.draw(surface)
 
-            if paddle_bounce:
-                ges[i].fitness += REWARD_PER_BOUNCE # Carrots!
+            if not paddle_reward is None:
+                ges[i].fitness += REWARD_PER_BOUNCE * paddle_reward # Carrots!
             
             # Dead
             if dead:
@@ -212,7 +213,7 @@ def eval_genomes(genomes:list[tuple[int,neat.DefaultGenome]], config:neat.Config
                 nets.pop(i)
                 ges.pop(i)
         
-        pygame.display.set_caption(f"Max fitness: {max(fitnesses):.2f}")
+        pygame.display.set_caption(f"Max fitness: {max([g.fitness for id, g in genomes]):.2f}")
 
         pygame.display.update()
             
@@ -238,7 +239,7 @@ def run(winner_file="./temp/winning_pong_genome.gn"):
     p.add_reporter(neat.Checkpointer(1, filename_prefix="./checkpoints/pong/"))
 
     # Train the network
-    winner = p.run(eval_genomes)
+    winner = p.run(eval_genomes, 20)
     
     # Save best genome
     with gzip.open(winner_file, "w") as f:
@@ -246,17 +247,9 @@ def run(winner_file="./temp/winning_pong_genome.gn"):
 
     # Display the winning genome.
     print('\n--- Best genome: ---\n{!s}'.format(winner))
-    
-    winner = []
-
-
-    # neat_utils.draw_net(config, winner, True, node_names=NODE_NAMES)
-    # neat_utils.draw_net(config, winner, True, node_names=NODE_NAMES, prune_unused=True, filename="network-pruned")
-    # neat_utils.plot_stats(stats, ylog=False, view=True)
-    # neat_utils.plot_species(stats, view=True)
 
 
 if __name__ == "__main__":
-    # run()
+    run()
 
-    revive_winner()
+    # revive_winner()
